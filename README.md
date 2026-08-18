@@ -5,26 +5,42 @@ CockroachDB × AWS "Agentic Memory" hackathon.
 
 You write journal entries. Later, you ask questions in plain English
 ("what was I stressed about last week?") and the agent retrieves the
-semantically relevant past entries and answers using them — not keyword
-search, actual meaning-based recall.
+semantically relevant past entries from CockroachDB.
 
-## How it uses the required tools
+## ⚠️ Submission scope note
 
-**CockroachDB (2 tools used):**
-- **Distributed Vector Indexing** — every journal entry is embedded (via AWS
-  Bedrock Titan) and stored in a `VECTOR` column with a `vector_cosine_ops`
-  index directly in CockroachDB. Semantic search runs as a normal SQL query
-  (`ORDER BY embedding <-> $query LIMIT 5`) — no separate vector database,
-  no sync gap between the source data and the embeddings.
-- **CockroachDB Cloud Managed MCP Server** — used during development to let
-  Claude Code inspect the `journal_entries` table, debug the vector index,
-  and iterate on schema directly from the terminal.
+This submission uses **CockroachDB fully as intended**, but does **not**
+integrate a real AWS service — an AWS account could not be created in time
+(AWS requires a card for verification, which wasn't available before the
+deadline). As a result:
 
-**AWS (1 service used):**
-- **Amazon Bedrock** — Titan Embeddings (`amazon.titan-embed-text-v2:0`)
-  generates the vector for each entry and each question; Claude on Bedrock
-  (`anthropic.claude-3-5-sonnet-20241022-v2:0`) generates the final answer
-  using retrieved memories as context (RAG).
+- ✅ CockroachDB Distributed Vector Indexing — fully implemented and working
+- ✅ CockroachDB Cloud Managed MCP Server — used during development
+- ❌ AWS Bedrock — **not connected**. `bedrock_mock.py` stands in for it,
+  using a simple deterministic word-hash embedding instead of a real model,
+  so the write → embed → store → retrieve pipeline is still fully
+  demonstrable end-to-end without external API calls.
+
+This means the submission does not meet the hackathon's "at least one AWS
+service" requirement and may not be eligible for judging/prizes on that
+basis — flagging this transparently rather than claiming AWS integration
+that isn't there.
+
+## How it works
+
+**CockroachDB (what's real):**
+- Every journal entry is embedded and stored in a `VECTOR` column with a
+  `vector_cosine_ops` index directly in CockroachDB.
+- Semantic search runs as a normal SQL query
+  (`ORDER BY embedding <-> $query LIMIT 5`) — no separate vector database.
+
+**Embedding/answering (mocked):**
+- `bedrock_mock.py` generates a deterministic pseudo-embedding from word
+  hashes (not true semantic understanding) and returns the raw retrieved
+  memories instead of an LLM-generated answer.
+- Swapping in real AWS Bedrock later just means replacing this one file
+  with real Titan Embeddings + Claude calls — the CockroachDB layer
+  (`db.py`) doesn't need to change at all.
 
 ## Setup
 
@@ -33,41 +49,33 @@ search, actual meaning-based recall.
 2. Grab the connection string from the "Connect" panel
 3. Put it in `.env` as `COCKROACHDB_URL`
 
-### 2. AWS Bedrock
-1. In the AWS Console, go to Bedrock → Model access, and request access to:
-   - `amazon.titan-embed-text-v2:0`
-   - `anthropic.claude-3-5-sonnet-20241022-v2:0`
-   (Approval is usually instant for Titan, may take a few minutes for Claude.)
-2. Create an IAM user/access key with `bedrock:InvokeModel` permission
-3. Put the credentials in `.env`
-
-### 3. Install & run
-```bash
+### 2. Install & run
+\`\`\`bash
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env   # then fill in your credentials
+cp .env.example .env   # then fill in COCKROACHDB_URL
 
-python app.py init                     # creates the table + vector index
+python app.py init
 python app.py write "Studied for DBMS exam, felt stressed about normalization"
-python app.py write "Went for a walk, felt much calmer after talking to a friend"
-python app.py ask "what was I stressed about recently?"
-```
+python app.py write "Went for a walk, felt calmer after talking to a friend"
+python app.py ask "what was I stressed about?"
+python app.py clear    # wipes all entries, for re-testing
+\`\`\`
 
 ## Architecture
 
-```
+\`\`\`
  User (CLI)
     |
     v
- app.py -----> bedrock.py --(Titan Embeddings)--> AWS Bedrock
-    |                --(Claude RAG answer)------> AWS Bedrock
+ app.py -----> bedrock_mock.py --(word-hash embedding, no external API)-->
     |
     v
   db.py -----> CockroachDB
                  - journal_entries (content, embedding VECTOR, created_at)
                  - vector index (vector_cosine_ops) for semantic search
-```
+\`\`\`
 
 ## License
-MIT — see `LICENSE`.
+MIT — see \`LICENSE\`.

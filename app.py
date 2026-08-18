@@ -14,15 +14,21 @@ Usage:
     python app.py list
 """
 
+import os
 import sys
 from dotenv import load_dotenv
 from rich.console import Console
 from rich.panel import Panel
 
 import db
-import bedrock
 
 load_dotenv()
+
+# NOTE: AWS Bedrock is not wired in for this submission (no AWS account
+# available at build time). bedrock_mock.py stands in for it -- see
+# README.md for exactly what's real vs. mocked in this submission.
+import bedrock_mock as bedrock
+
 console = Console()
 
 
@@ -61,6 +67,14 @@ def cmd_list():
         console.print(f"[dim]{e['created_at']}[/dim] -- {e['content']}")
 
 
+def cmd_clear():
+    conn = db.get_connection()
+    with conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM journal_entries;")
+    conn.close()
+    console.print("[green]All entries cleared.[/green]")
+
+
 def main():
     if len(sys.argv) < 2:
         console.print(__doc__)
@@ -85,6 +99,8 @@ def main():
         cmd_ask(question)
     elif command == "list":
         cmd_list()
+    elif command == "clear":
+        cmd_clear()
     else:
         console.print(f"[red]Unknown command: {command}[/red]")
         console.print(__doc__)

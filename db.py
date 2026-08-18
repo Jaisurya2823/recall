@@ -39,16 +39,22 @@ def init_db():
     conn.close()
 
 
+def _vector_literal(embedding: list[float]) -> str:
+    """CockroachDB's VECTOR type expects a string literal like '[0.1,0.2,...]',
+    not a raw Python list/array -- psycopg2 has no native adapter for it."""
+    return "[" + ",".join(repr(float(x)) for x in embedding) + "]"
+
+
 def save_entry(content: str, embedding: list[float]) -> str:
     conn = get_connection()
     with conn, conn.cursor() as cur:
         cur.execute(
             """
             INSERT INTO journal_entries (content, embedding)
-            VALUES (%s, %s)
+            VALUES (%s, %s::VECTOR)
             RETURNING id;
             """,
-            (content, embedding),
+            (content, _vector_literal(embedding)),
         )
         entry_id = cur.fetchone()[0]
     conn.close()
@@ -57,17 +63,18 @@ def save_entry(content: str, embedding: list[float]) -> str:
 
 def search_similar(embedding: list[float], limit: int = 5):
     """Return the most semantically similar past entries, nearest first."""
+    vec = _vector_literal(embedding)
     conn = get_connection()
     with conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
         cur.execute(
             """
             SELECT id, content, created_at,
-                   embedding <-> %s AS distance
+                   embedding <-> %s::VECTOR AS distance
             FROM journal_entries
-            ORDER BY embedding <-> %s
+            ORDER BY embedding <-> %s::VECTOR
             LIMIT %s;
             """,
-            (embedding, embedding, limit),
+            (vec, vec, limit),
         )
         rows = cur.fetchall()
     conn.close()
